@@ -70,6 +70,23 @@ mount(Player);
 | `controls` | `boolean` | `false` | Shows the platform's playback controls. |
 | `resizeMode` | `"cover" \| "contain" \| "stretch" \| "center"` | | How the video fits its box. |
 | `progressUpdateInterval` | `number` | `250` | Milliseconds between `onProgress` events. |
+| `audioSession` | `"default" \| "playback" \| "mixWithOthers"` | `"default"` | What the sound does to the rest of the device's audio: see [Sound and other apps](#sound-and-other-apps). |
+
+### Sound and other apps
+
+A video's sound follows the platform's defaults for video: the ringer switch silences it, and it stops other apps' audio. That suits a clip and not a lesson: an app that plays speech, as an audiobook does, sets `audioSession`.
+
+| `audioSession` | Ringer switch silenced | Other apps' audio |
+|---|---|---|
+| `"default"` | sound is silenced | stops |
+| `"playback"` | sound plays | stops |
+| `"mixWithOthers"` | sound plays | keeps playing |
+
+On Apple platforms this sets `AVAudioSession`'s category to `playback` with the `spokenAudio` mode (and `mixWithOthers` for the last); on Android it sets the player's audio attributes to speech and asks for audio focus, unless mixing.
+
+```tsx
+<Video src="asset:/greeting.m4a" audioSession="playback" />
+```
 
 ## Events
 

@@ -6,7 +6,9 @@
 use std::{cell::Cell, ffi::CStr, ptr::NonNull, rc::Rc, sync::OnceLock};
 
 use block2::RcBlock;
-use nsh_core::{EventKind, EventPayload, NodeId, PayloadValue, ResizeMode, VideoProps};
+use nsh_core::{
+    AudioSession, EventKind, EventPayload, NodeId, PayloadValue, ResizeMode, VideoProps,
+};
 use nsh_engine::EngineControl;
 use objc2::{
     Encode, Encoding, MainThreadMarker, msg_send,
@@ -78,6 +80,76 @@ fn class(name: &CStr) -> Option<&'static AnyClass> {
     AnyClass::get(name)
 }
 
+/// The category, mode and options of `session`, for
+/// `AVAudioSession.setCategory:mode:options:error:`: the platform's video
+/// behavior (silenced by the ringer switch) unless the app asks for speech.
+fn audio_category(session: AudioSession) -> (Retained<NSString>, Retained<NSString>, usize) {
+    // AVAudioSessionCategoryOptionMixWithOthers is 1.
+    let (category, mode, options) = match session {
+        AudioSession::Default => (
+            "AVAudioSessionCategorySoloAmbient",
+            "AVAudioSessionModeDefault",
+            0,
+        ),
+        AudioSession::Playback => (
+            "AVAudioSessionCategoryPlayback",
+            "AVAudioSessionModeSpokenAudio",
+            0,
+        ),
+        AudioSession::MixWithOthers => (
+            "AVAudioSessionCategoryPlayback",
+            "AVAudioSessionModeSpokenAudio",
+            1,
+        ),
+    };
+    (
+        NSString::from_str(category),
+        NSString::from_str(mode),
+        options,
+    )
+}
+
+/// Sets the shared audio session to what `session` asks for, once per
+/// change: the app's own sound then behaves as the video asked, and the
+/// ringer switch does not silence speech.
+fn apply_audio_session(session: AudioSession) {
+    static APPLIED: OnceLock<std::sync::Mutex<Option<AudioSession>>> = OnceLock::new();
+    let applied = APPLIED.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut last) = applied.lock()
+        && *last == Some(session)
+    {
+        return;
+    }
+    let Some(cls) = class(c"AVAudioSession") else {
+        return;
+    };
+    let (category, mode, options) = audio_category(session);
+    // SAFETY: AVAudioSession's documented API.
+    unsafe {
+        let session_obj: Retained<AnyObject> = msg_send![cls, sharedInstance];
+        let mut error: *mut AnyObject = std::ptr::null_mut();
+        let ok: Bool = msg_send![
+            session_obj,
+            setCategory: &*category
+            mode: &*mode
+            options: options
+            error: &mut error
+        ];
+        if !ok.as_bool() {
+            log::error!("cannot set the audio session category");
+            return;
+        }
+        let active: Bool = msg_send![session_obj, setActive: Bool::new(true), error: &mut error];
+        if !active.as_bool() {
+            log::error!("cannot activate the audio session");
+            return;
+        }
+    }
+    if let Ok(mut last) = applied.lock() {
+        *last = Some(session);
+    }
+}
+
 /// What the player has reported so far.
 #[derive(Default)]
 struct Status {
@@ -144,6 +216,9 @@ impl VideoHost {
     pub(crate) fn configure(&mut self, p: VideoProps) {
         if !av_foundation() {
             return log::error!("cannot load AVFoundation");
+        }
+        if p.audio_session != self.props.audio_session {
+            apply_audio_session(p.audio_session);
         }
         if p.source != self.props.source || self.player.is_none() {
             self.open(p.source.as_deref());

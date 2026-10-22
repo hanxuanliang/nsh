@@ -70,6 +70,23 @@ mount(Player);
 | `controls` | `boolean` | `false` | 显示平台自带的播放控件。 |
 | `resizeMode` | `"cover" \| "contain" \| "stretch" \| "center"` | | 视频如何适应其区域。 |
 | `progressUpdateInterval` | `number` | `250` | `onProgress` 事件之间的毫秒数。 |
+| `audioSession` | `"default" \| "playback" \| "mixWithOthers"` | `"default"` | 声音与设备上其他音频的关系：见[声音与其他应用](#声音与其他应用)。 |
+
+### 声音与其他应用
+
+视频的声音默认按视频处理：静音开关打开时不发声，并且会打断其他应用的声音。这适合一段短片，不适合一节课：播放人声的应用（如有声书）应当设置 `audioSession`。
+
+| `audioSession` | 静音开关打开时 | 其他应用的声音 |
+|---|---|---|
+| `"default"` | 不发声 | 被打断 |
+| `"playback"` | 照常发声 | 被打断 |
+| `"mixWithOthers"` | 照常发声 | 继续播放 |
+
+在 Apple 平台上，这会把 `AVAudioSession` 的类别设为 `playback`、模式设为 `spokenAudio`（最后一个再叠加 `mixWithOthers`）；在 Android 上，这会把播放器的音频属性设为语音并申请音频焦点（混音时不申请）。
+
+```tsx
+<Video src="asset:/greeting.m4a" audioSession="playback" />
+```
 
 ## 事件
 

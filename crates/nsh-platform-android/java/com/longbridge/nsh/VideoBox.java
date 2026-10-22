@@ -4,6 +4,9 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -30,6 +33,9 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
     /** 0 cover, 1 contain, 2 stretch. */
     private int resizeMode = 1;
     private float progressInterval = 250;
+    /** 0 default, 1 playback, 2 mix with others. */
+    private int audioSession;
+    private AudioFocusRequest focusRequest;
     private int videoWidth, videoHeight;
     private MediaController controller;
     private final Runnable progress = this::progress;
@@ -42,13 +48,17 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
     }
 
     void configure(String source, boolean paused, boolean muted, float volume, float rate, boolean repeat,
-            int resizeMode, boolean controls, float progressInterval) {
+            int resizeMode, boolean controls, float progressInterval, int audioSession) {
         this.paused = paused;
         this.muted = muted;
         this.volume = volume;
         this.rate = rate;
         this.repeat = repeat;
         this.progressInterval = progressInterval;
+        if (audioSession != this.audioSession) {
+            this.audioSession = audioSession;
+            applyAudioSession();
+        }
         if (resizeMode != this.resizeMode) {
             this.resizeMode = resizeMode;
             fit();
@@ -196,8 +206,45 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
         }
     }
 
+    /**
+     * Sets the audio attributes the platform treats this sound as (speech,
+     * so it is not ducked or silenced as a ringer would a game) and asks for
+     * audio focus when the props say the sound should stop other apps'.
+     */
+    private void applyAudioSession() {
+        MediaPlayer p = player;
+        if (audioSession == 0) {
+            abandonAudioFocus();
+            return;
+        }
+        AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build();
+        if (p != null) p.setAudioAttributes(attributes);
+        if (audioSession == 2) {
+            abandonAudioFocus();
+            return;
+        }
+        AudioManager manager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (manager == null) return;
+        if (focusRequest == null) {
+            focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(attributes)
+                    .build();
+        }
+        manager.requestAudioFocus(focusRequest);
+    }
+
+    private void abandonAudioFocus() {
+        if (focusRequest == null) return;
+        AudioManager manager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (manager != null) manager.abandonAudioFocusRequest(focusRequest);
+    }
+
     void destroy() {
         if (controller != null) controller.hide();
+        abandonAudioFocus();
         release();
         if (surface != null) {
             surface.release();
