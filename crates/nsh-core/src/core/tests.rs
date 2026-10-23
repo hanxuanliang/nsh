@@ -16227,8 +16227,8 @@ fn sticky_views_in_a_horizontal_scroll_view_stick_at_their_left() {
 
 #[test]
 fn audio_session_reaches_the_video() {
-    // A lesson's speech plays with the ringer switch silenced: the prop
-    // reaches the platform's player, and its default keeps video behavior.
+    // A lesson's speech plays in silent mode: the prop reaches the
+    // platform's player.
     let mut c = core();
     apply(
         &mut c,

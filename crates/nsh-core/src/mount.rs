@@ -96,23 +96,20 @@ impl Default for WebProps {
     }
 }
 
-/// What a video's sound does to the rest of the device's audio.
-///
-/// A player's audio session decides three things a learner notices: whether
-/// sound plays with the ringer switch silenced, whether other apps' audio
-/// stops, and whether the system treats the sound as speech. The platform
-/// defaults suit video, not lessons; a language app plays speech with the
-/// ringer silenced, as an audiobook does.
+/// What a video's sound does to the rest of the device's audio while it
+/// plays: whether it plays in silent mode, whether other apps' audio pauses,
+/// and whether the system treats it as speech. iOS sets the shared
+/// `AVAudioSession` while such a video plays and restores it after; Android
+/// marks the sound as speech and holds audio focus for `Playback`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PropEnum)]
 pub enum AudioSession {
-    /// The platform's default for a video (`AVAudioSessionCategorySoloAmbient`
-    /// on Apple platforms): silenced by the ringer switch, and other apps'
-    /// audio stops.
+    /// The app's audio settings (the platform's for video unless the app, or
+    /// the app embedding NSH, set others): nothing is changed.
     #[default]
     Default,
-    /// Plays speech: audible with the ringer switch silenced, and other
-    /// apps' audio stops (Apple's `playback` category, `spokenAudio` mode;
-    /// Android's speech content type with audio focus).
+    /// Plays speech: audible in silent mode, other apps' audio pauses while
+    /// it plays (Apple's `playback` category, `spokenAudio` mode; Android's
+    /// speech content type with transient audio focus).
     Playback,
     /// Plays speech over other apps' audio, which keeps playing
     /// (Apple's `playback` category with `mixWithOthers`; Android's speech

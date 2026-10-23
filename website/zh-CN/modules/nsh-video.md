@@ -74,15 +74,15 @@ mount(Player);
 
 ### 声音与其他应用
 
-视频的声音默认按视频处理：静音开关打开时不发声，并且会打断其他应用的声音。这适合一段短片，不适合一节课：播放人声的应用（如有声书）应当设置 `audioSession`。
+视频的声音遵循应用的音频设置，默认是平台对视频的处理：在 iOS 上，设备处于静音模式时不发声。播放人声的应用（如有声书、语言课程）设置 `audioSession`：
 
-| `audioSession` | 静音开关打开时 | 其他应用的声音 |
+| `audioSession` | 静音模式下 | 播放期间其他应用的声音 |
 |---|---|---|
-| `"default"` | 不发声 | 被打断 |
-| `"playback"` | 照常发声 | 被打断 |
+| `"default"` | 由应用的音频设置决定 | 由应用的音频设置决定 |
+| `"playback"` | 照常发声 | 暂停，视频暂停、播完或移除后恢复 |
 | `"mixWithOthers"` | 照常发声 | 继续播放 |
 
-在 Apple 平台上，这会把 `AVAudioSession` 的类别设为 `playback`、模式设为 `spokenAudio`（最后一个再叠加 `mixWithOthers`）；在 Android 上，这会把播放器的音频属性设为语音并申请音频焦点（混音时不申请）。
+设置在视频播放期间生效。在 iOS 上，第一个这样的视频开始播放时，会把 `AVAudioSession` 设为 `playback` 类别、`spokenAudio` 模式（`"mixWithOthers"` 时与其他应用混音）；没有这样的视频在播放后，会话恢复原来的设置，被暂停的应用可以继续播放；`"default"` 保持应用（或嵌入 NSH 的应用）自己设置的会话。在 Android 上，播放器的声音标记为语音，`"playback"` 的视频在播放期间持有音频焦点：其他应用拿走焦点时（来电、导航提示）它暂停，焦点回来后继续播放。在 Android 上修改 `audioSession` 会重新打开视频源。桌面平台和 Web 像播放其他视频一样播放声音。
 
 ```tsx
 <Video src="asset:/greeting.m4a" audioSession="playback" />

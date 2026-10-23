@@ -1115,8 +1115,8 @@ impl Video {
         self.bind_prop(ms, |ms: f32| Prop::Native(NativeProp::ProgressInterval(ms)))
     }
 
-    /// What its sound does to the rest of the device's audio (default:
-    /// the platform's video behavior, silenced by the ringer switch).
+    /// What its sound does to the rest of the device's audio while it
+    /// plays (default: the app's audio settings).
     pub fn audio_session(self, session: impl IntoReactive<AudioSession>) -> Self {
         self.bind_prop(session, |session: AudioSession| {
             Prop::Native(NativeProp::AudioSession(session))

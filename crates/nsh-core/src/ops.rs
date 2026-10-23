@@ -1992,8 +1992,8 @@ pub enum NativeProp {
     #[prop(js = "progressUpdateInterval", default = 250.0, on = VIDEO)]
     ProgressInterval(f32),
     /// `audioSession` (videos): what the sound does to the rest of the
-    /// device's audio (`"default"` when unset: the platform's video
-    /// behavior, silenced by the ringer switch).
+    /// device's audio while it plays (`"default"` when unset: the app's
+    /// audio settings).
     #[prop(
         js = "audioSession",
         reset = NativeProp::AudioSession(crate::AudioSession::Default),
