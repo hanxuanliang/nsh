@@ -35,7 +35,9 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
     private float progressInterval = 250;
     /** 0 default, 1 playback, 2 mix with others. */
     private int audioSession;
+    /** Audio focus while a `playback` video plays (`updateFocus`). */
     private AudioFocusRequest focusRequest;
+    private boolean hasFocus;
     private int videoWidth, videoHeight;
     private MediaController controller;
     private final Runnable progress = this::progress;
@@ -55,9 +57,15 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
         this.rate = rate;
         this.repeat = repeat;
         this.progressInterval = progressInterval;
+        // A player takes its audio attributes before it prepares: another
+        // session opens the source again.
+        boolean reopen = audioSession != this.audioSession && player != null;
         if (audioSession != this.audioSession) {
             this.audioSession = audioSession;
-            applyAudioSession();
+            if (focusRequest != null) {
+                abandonFocus();
+                focusRequest = null;
+            }
         }
         if (resizeMode != this.resizeMode) {
             this.resizeMode = resizeMode;
@@ -71,7 +79,7 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
             controller.hide();
             controller = null;
         }
-        if (!Objects.equals(source, this.source)) {
+        if (!Objects.equals(source, this.source) || reopen) {
             this.source = source;
             open();
         } else {
@@ -104,6 +112,9 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
             if (repeat) {
                 mp.seekTo(0);
                 mp.start();
+            } else {
+                // It stopped: the other apps' audio may play again.
+                updateFocus();
             }
         });
         p.setOnInfoListener((mp, what, extra) -> {
@@ -123,6 +134,8 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
             return true;
         });
         if (surface != null) p.setSurface(surface);
+        AudioAttributes attributes = audioAttributes();
+        if (attributes != null) p.setAudioAttributes(attributes);
         if (mounter.wants(id, Native.LOAD_START)) mounter.event(id, Native.LOAD_START);
         try {
             host.setMediaSource(p, source);
@@ -149,6 +162,7 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
         }
         removeCallbacks(progress);
         if (!paused) postDelayed(progress, (long) progressInterval);
+        updateFocus();
     }
 
     private void progress() {
@@ -204,48 +218,73 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
             player.release();
             player = null;
         }
+        updateFocus();
     }
 
     /**
-     * Sets the audio attributes the platform treats this sound as (speech,
-     * so it is not ducked or silenced as a ringer would a game) and asks for
-     * audio focus when the props say the sound should stop other apps'.
+     * The attributes of `audioSession`'s sound: speech, for `playback` and
+     * `mixWithOthers`; none (the player's own) for `default`.
      */
-    private void applyAudioSession() {
-        MediaPlayer p = player;
-        if (audioSession == 0) {
-            abandonAudioFocus();
-            return;
-        }
-        AudioAttributes attributes = new AudioAttributes.Builder()
+    private AudioAttributes audioAttributes() {
+        if (audioSession == 0) return null;
+        return new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build();
-        if (p != null) p.setAudioAttributes(attributes);
-        if (audioSession == 2) {
-            abandonAudioFocus();
-            return;
-        }
-        AudioManager manager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
-        if (manager == null) return;
-        if (focusRequest == null) {
-            focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                    .setAudioAttributes(attributes)
-                    .build();
-        }
-        manager.requestAudioFocus(focusRequest);
     }
 
-    private void abandonAudioFocus() {
+    /**
+     * Holds audio focus while a `playback` video plays, and only then: other
+     * apps pause while it plays and resume once it pauses, ends or goes
+     * (`AUDIOFOCUS_GAIN_TRANSIENT`). Speech pauses rather than ducks when
+     * another app takes the focus, and plays on when it comes back.
+     */
+    private void updateFocus() {
+        MediaPlayer p = player;
+        boolean wanted = audioSession == 1 && p != null && prepared && p.isPlaying();
+        if (wanted == hasFocus) return;
+        AudioManager manager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (manager == null) return;
+        if (!wanted) {
+            abandonFocus();
+            return;
+        }
+        if (focusRequest == null) {
+            focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(audioAttributes())
+                    .setWillPauseWhenDucked(true)
+                    .setOnAudioFocusChangeListener(this::focusChanged)
+                    .build();
+        }
+        hasFocus = manager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+    }
+
+    private void focusChanged(int change) {
+        MediaPlayer p = player;
+        if (change == AudioManager.AUDIOFOCUS_GAIN) {
+            hasFocus = true;
+            if (p != null && prepared && !paused && !p.isPlaying()) p.start();
+        } else if (change == AudioManager.AUDIOFOCUS_LOSS) {
+            // Gone for good: the app plays it again by its props.
+            hasFocus = false;
+            if (p != null && prepared && p.isPlaying()) p.pause();
+        } else if (p != null && prepared && p.isPlaying()) {
+            // Lost for a while (a call, a navigation prompt): back on GAIN.
+            p.pause();
+        }
+    }
+
+    private void abandonFocus() {
         if (focusRequest == null) return;
+        hasFocus = false;
         AudioManager manager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
         if (manager != null) manager.abandonAudioFocusRequest(focusRequest);
     }
 
     void destroy() {
         if (controller != null) controller.hide();
-        abandonAudioFocus();
         release();
+        abandonFocus();
         if (surface != null) {
             surface.release();
             surface = null;
@@ -290,6 +329,7 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
             paused = false;
             removeCallbacks(progress);
             post(progress);
+            updateFocus();
         }
     }
 
@@ -297,6 +337,7 @@ final class VideoBox extends WidgetBox implements TextureView.SurfaceTextureList
     public void pause() {
         if (player != null && prepared) player.pause();
         paused = true;
+        updateFocus();
     }
 
     @Override
